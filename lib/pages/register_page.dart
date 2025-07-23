@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:my_chat_app/pages/chat_page.dart';
-import 'package:my_chat_app/pages/login_page.dart';
-import 'package:my_chat_app/utils/constants.dart';
+import 'package:chatpoc/pages/chat_page.dart';
+import 'package:chatpoc/pages/login_page.dart';
+import 'package:chatpoc/utils/constants.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -29,7 +29,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final _usernameController = TextEditingController();
 
   Future<void> _signUp() async {
-    final isValid = _formKey.currentState!.validate();
+    final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       return;
     }
@@ -37,10 +37,16 @@ class _RegisterPageState extends State<RegisterPage> {
     final password = _passwordController.text;
     final username = _usernameController.text;
     try {
-      await supabase.auth.signUp(
+      final authResponse = await supabase.auth.signUp(
           email: email, password: password, data: {'username': username});
+      final userId = authResponse.user?.id;
+      if (userId == null) {
+        context.showErrorSnackBar(message: 'A confirmation mail was sent to "$email". Please, confirm your account to proceed.');
+        return;
+      }
+
       Navigator.of(context)
-          .pushAndRemoveUntil(ChatPage.route(), (route) => false);
+          .pushAndRemoveUntil(ChatPage.route(userId), (route) => false);
     } on AuthException catch (error) {
       context.showErrorSnackBar(message: error.message);
     } catch (error) {

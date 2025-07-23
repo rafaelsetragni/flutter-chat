@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'package:my_chat_app/models/message.dart';
-import 'package:my_chat_app/models/profile.dart';
-import 'package:my_chat_app/utils/constants.dart';
+import 'package:chatpoc/models/message.dart';
+import 'package:chatpoc/models/profile.dart';
+import 'package:chatpoc/utils/constants.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timeago/timeago.dart';
 
@@ -12,11 +12,12 @@ import 'package:timeago/timeago.dart';
 ///
 /// Displays chat bubbles as a ListView and TextField to enter new chat.
 class ChatPage extends StatefulWidget {
-  const ChatPage({Key? key}) : super(key: key);
+  final String userId;
+  const ChatPage({required this.userId, Key? key}) : super(key: key);
 
-  static Route<void> route() {
+  static Route<void> route(String userId) {
     return MaterialPageRoute(
-      builder: (context) => const ChatPage(),
+      builder: (context) => ChatPage(userId: userId),
     );
   }
 
@@ -30,13 +31,12 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void initState() {
-    final myUserId = supabase.auth.currentUser!.id;
     _messagesStream = supabase
         .from('messages')
         .stream(primaryKey: ['id'])
         .order('created_at')
         .map((maps) => maps
-            .map((map) => Message.fromMap(map: map, myUserId: myUserId))
+            .map((map) => Message.fromMap(map: map, myUserId: widget.userId))
             .toList());
     super.initState();
   }
@@ -190,43 +190,81 @@ class _ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> chatContents = [
-      if (!message.isMine)
+    final chatContents = message.isMine
+        ? _buildMineMessage(context)
+        : _buildOthersMessage(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
+      child: chatContents,
+    );
+  }
+
+  Widget _buildMineMessage(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(width: 12),
+        Flexible(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(message.content),
+              ),
+              const SizedBox(height: 4),
+              Text(format(message.createdAt, locale: 'en_short')),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+      ],
+    );
+  }
+
+  Widget _buildOthersMessage(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         CircleAvatar(
           child: profile == null
               ? preloader
               : Text(profile!.username.substring(0, 2)),
         ),
-      const SizedBox(width: 12),
-      Flexible(
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            vertical: 8,
-            horizontal: 12,
+        const SizedBox(width: 12),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(message.content),
+              ),
+              const SizedBox(height: 4),
+              Text(format(message.createdAt, locale: 'en_short')),
+            ],
           ),
-          decoration: BoxDecoration(
-            color: message.isMine
-                ? Theme.of(context).primaryColor
-                : Colors.grey[300],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(message.content),
         ),
-      ),
-      const SizedBox(width: 12),
-      Text(format(message.createdAt, locale: 'en_short')),
-      const SizedBox(width: 60),
-    ];
-    if (message.isMine) {
-      chatContents = chatContents.reversed.toList();
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
-      child: Row(
-        mainAxisAlignment:
-            message.isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
-        children: chatContents,
-      ),
+        const SizedBox(width: 12),
+      ],
     );
   }
 }
