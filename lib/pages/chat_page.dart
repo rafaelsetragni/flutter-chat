@@ -184,14 +184,16 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _buildChatContent() {
-    return StreamBuilder<List<Message>>(
-      stream: _messagesStream,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return preloader;
+    return Expanded(
+      child: StreamBuilder<List<Message>>(
+        stream: _messagesStream,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return Center(child: preloader);
+          }
 
-        final rawMessages = snapshot.data!;
-        return Expanded(
-          child: GroupedListView<List<Message>, String>(
+          final rawMessages = snapshot.data!;
+          return GroupedListView<List<Message>, String>(
             elements: _groupMessagesByUserAndDay(rawMessages),
             groupBy: (group) => DateTime(
               group.first.createdAt.year,
@@ -217,9 +219,9 @@ class _ChatPageState extends State<ChatPage> {
             reverse: true,
             controller: _scrollController,
             padding: EdgeInsets.all(12),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
