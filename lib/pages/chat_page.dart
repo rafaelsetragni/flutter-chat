@@ -11,6 +11,33 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/chat_title_provider.dart';
 import '../widgets/grouped_list_view.dart';
 
+final List<Color> userColors = [
+  Colors.red,
+  Colors.green,
+  Colors.blue,
+  Colors.orange,
+  Colors.purple,
+  Colors.cyan,
+  Colors.amber,
+  Colors.teal,
+  Colors.indigo,
+  Colors.pink,
+  Colors.lime,
+  Colors.brown,
+  Colors.deepOrange,
+  Colors.deepPurple,
+  Colors.lightBlue,
+  Colors.lightGreen,
+  Colors.yellow,
+  Colors.grey,
+  Colors.blueGrey,
+  Colors.lightGreenAccent,
+  Colors.orangeAccent,
+  Colors.pinkAccent,
+  Colors.purpleAccent,
+  Colors.tealAccent,
+];
+
 /// Page to chat with someone.
 ///
 /// Displays chat bubbles as a ListView and TextField to enter new chat.
@@ -37,6 +64,24 @@ class _ChatPageState extends State<ChatPage> {
   late final Stream<List<Message>> _messagesStream;
   final Map<String, Profile> _profileCache = {};
   final ScrollController _scrollController = ScrollController();
+
+  final Map<String, Color> _userColorMap = {};
+
+  Color _getUserColor(String profileId) {
+    if (_userColorMap.containsKey(profileId)) {
+      return _userColorMap[profileId]!;
+    }
+
+    final usedColors = _userColorMap.values.toSet();
+    final availableColors =
+        userColors.where((c) => !usedColors.contains(c)).toList();
+    final color = availableColors.isNotEmpty
+        ? availableColors.first
+        : userColors[_userColorMap.length % userColors.length];
+
+    _userColorMap[profileId] = color;
+    return color;
+  }
 
   @override
   void initState() {
@@ -81,49 +126,60 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Consumer<ChatProvider>(
-          builder: (_, provider, __) => Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              provider.buildChatAvatar(),
-              SizedBox(width: 16),
-              Text(provider.title ?? 'Chat'),
-            ],
-          ),
-        ),
-        centerTitle: true,
-        elevation: 4,
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
-        shadowColor: Colors.black12,
-        actions: [
-          PopupMenuButton<String>(
-            icon: Icon(Icons.settings),
-            onSelected: (value) async {
-              if (value == 'logout') {
-                await Supabase.instance.client.auth.signOut();
-                Navigator.of(context).pop();
-              }
-            },
-            itemBuilder: (BuildContext context) {
-              return [
-                const PopupMenuItem<String>(
-                  value: 'logout',
-                  child: Text('Logout'),
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Consumer<ChatProvider>(
+            builder: (_, provider, __) => Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                provider.buildChatAvatar(),
+                SizedBox(width: 16),
+                Column(
+                  children: [
+                    Text(provider.title ?? 'Chat'),
+                    Text(
+                      '35 online',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
                 ),
-              ];
-            },
+              ],
+            ),
           ),
-        ],
+          centerTitle: true,
+          elevation: 4,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+          shadowColor: Colors.black12,
+          actions: [
+            PopupMenuButton<String>(
+              icon: Icon(Icons.settings),
+              onSelected: (value) async {
+                if (value == 'logout') {
+                  await Supabase.instance.client.auth.signOut();
+                  Navigator.of(context).pop();
+                }
+              },
+              itemBuilder: (BuildContext context) {
+                return [
+                  const PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Text('Logout'),
+                  ),
+                ];
+              },
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            _buildChatContent(),
+            const _MessageBar(),
+          ],
+        ),
+        //bottomNavigationBar: CustomNavigationBar(index: 2),
       ),
-      body: Column(
-        children: [
-          _buildChatContent(),
-          const _MessageBar(),
-        ],
-      ),
-      //bottomNavigationBar: CustomNavigationBar(index: 2),
     );
   }
 
@@ -135,17 +191,25 @@ class _ChatPageState extends State<ChatPage> {
 
         final rawMessages = snapshot.data!;
         return Expanded(
-          child: GroupedListView<Message, DateTime>(
-            elements: rawMessages,
-            groupBy: (msg) => DateTime(
-              msg.createdAt.year,
-              msg.createdAt.month,
-              msg.createdAt.day,
-            ),
-            groupHeaderBuilder: (item) => _buildDateBadge(item.createdAt),
-            itemBuilder: (context, Message msg) {
-              _loadProfileCache(msg.profileId);
-              return _ChatBubble(message: msg);
+          child: GroupedListView<List<Message>, String>(
+            elements: _groupMessagesByUserAndDay(rawMessages),
+            groupBy: (group) => DateTime(
+              group.first.createdAt.year,
+              group.first.createdAt.month,
+              group.first.createdAt.day,
+            ).toIso8601String(),
+            groupHeaderBuilder: (group) {
+              final date = group.first.createdAt;
+              return _buildDateBadge(date);
+            },
+            itemBuilder: (context, List<Message> group) {
+              final profileId = group.first.profileId;
+              _loadProfileCache(profileId);
+              return _ChatBubbleGroup(
+                messages: group,
+                profile: _profileCache[profileId],
+                userColor: _getUserColor(profileId),
+              );
             },
             floatingHeader: true,
             useStickyGroupSeparators: true,
@@ -157,6 +221,33 @@ class _ChatPageState extends State<ChatPage> {
         );
       },
     );
+  }
+
+  List<List<Message>> _groupMessagesByUserAndDay(List<Message> messages) {
+    if (messages.isEmpty) return [];
+
+    final List<List<Message>> groups = [];
+    List<Message> currentGroup = [messages.first];
+
+    for (int i = 1; i < messages.length; i++) {
+      final previous = currentGroup.last;
+      final current = messages[i];
+
+      final sameUser = current.profileId == previous.profileId;
+      final sameDay = current.createdAt.year == previous.createdAt.year &&
+          current.createdAt.month == previous.createdAt.month &&
+          current.createdAt.day == previous.createdAt.day;
+
+      if (sameUser && sameDay) {
+        currentGroup.add(current);
+      } else {
+        groups.add(currentGroup);
+        currentGroup = [current];
+      }
+    }
+
+    groups.add(currentGroup);
+    return groups;
   }
 
   Widget _buildDateBadge(DateTime date) {
@@ -287,9 +378,15 @@ class _MessageBarState extends State<_MessageBar> {
 
 class _ChatBubble extends StatelessWidget {
   final Message message;
+  final String? leadingText;
+  final Color? usernameColor;
+  final bool hasTail;
 
   const _ChatBubble({
     required this.message,
+    this.leadingText,
+    this.usernameColor,
+    this.hasTail = false,
   });
 
   @override
@@ -297,37 +394,67 @@ class _ChatBubble extends StatelessWidget {
     final isCurrentUser = message.isMine;
     return Align(
       alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isCurrentUser ? Colors.blue : Colors.grey[300],
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: IntrinsicWidth(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: isCurrentUser
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
-            children: [
-              Text(
-                message.content,
-                style: TextStyle(
-                  color: isCurrentUser ? Colors.white : Colors.black,
-                ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment:
+            isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.fromLTRB(
+              12,
+              4,
+              12,
+              8,
+            ),
+            decoration: BoxDecoration(
+              color: isCurrentUser ? Colors.blue : Colors.grey[300],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IntrinsicWidth(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: isCurrentUser
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!isCurrentUser && leadingText != null)
+                        Text(
+                          leadingText!,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: usernameColor ?? Colors.black87,
+                          ),
+                        ),
+                      Text(
+                        message.content,
+                        style: TextStyle(
+                          color: isCurrentUser ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat('HH:mm').format(message.createdAt),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isCurrentUser ? Colors.white70 : Colors.black54,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                DateFormat('HH:mm').format(message.createdAt),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: isCurrentUser ? Colors.white70 : Colors.black54,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          if (hasTail && !isCurrentUser)
+            CustomPaint(
+              size: Size(16, 10),
+              painter: TrianglePainter(color: Colors.grey[300]!),
+            ),
+        ],
       ),
     );
   }
@@ -355,10 +482,12 @@ class _ChatBubbleGroup extends StatelessWidget {
     Key? key,
     required this.messages,
     required this.profile,
+    required this.userColor,
   }) : super(key: key);
 
   final List<Message> messages;
   final Profile? profile;
+  final Color userColor;
 
   @override
   Widget build(BuildContext context) {
@@ -368,40 +497,58 @@ class _ChatBubbleGroup extends StatelessWidget {
         maxWidth: MediaQuery.sizeOf(context).width * 0.8,
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMine)
-            Container(
-              width: 40,
-              margin: const EdgeInsets.only(top: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    child: profile == null
-                        ? preloader
-                        : Text(profile!.username.substring(0, 2)),
-                  ),
-                ],
-              ),
+            CircleAvatar(
+              radius: 16,
+              child: profile == null
+                  ? preloader
+                  : Text(profile!.username.substring(0, 2)),
             ),
           Flexible(
             child: Column(
               crossAxisAlignment:
                   isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: List.generate(
-                messages.length,
-                (index) => _ChatBubble(
-                  message: messages[index],
+              children: [
+                ...List.generate(
+                  messages.length,
+                  (index) => _ChatBubble(
+                    message: messages[index],
+                    leadingText: !isMine && profile != null
+                        ? '${profile!.username}:'
+                        : null,
+                    usernameColor: userColor,
+                    hasTail: index == messages.length - 1,
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class TrianglePainter extends CustomPainter {
+  final Color color;
+
+  TrianglePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..lineTo(size.width, 0)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }
 
 String _formatBadgeDate(DateTime date) {
