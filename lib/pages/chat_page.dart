@@ -44,7 +44,6 @@ class _ChatPageState extends State<ChatPage> {
   late final Stream<List<Message>> _messagesStream;
   final Map<String, Profile> _profileCache = {};
   final ScrollController _scrollController = ScrollController();
-  DateTime? _currentTopDate;
 
   @override
   void initState() {
@@ -55,52 +54,12 @@ class _ChatPageState extends State<ChatPage> {
         .map((maps) => maps
             .map((map) => Message.fromMap(map: map, myUserId: widget.userId))
             .toList());
-    _scrollController.addListener(_updateTopDate);
     super.initState();
   }
 
   @override
   void didChangeDependencies() {
-    _updateTopDate();
     super.didChangeDependencies();
-  }
-
-  void _updateTopDate() {
-    if (!_scrollController.hasClients) return;
-
-    final context = _scrollController.position.context.storageContext;
-    final listViewBox = context.findRenderObject() as RenderBox?;
-    if (listViewBox == null || !listViewBox.attached) return;
-
-    DateTime? firstVisibleDate;
-
-    context.visitChildElements((element) {
-      final widget = element.widget;
-      if (widget is _ChatBubbleGroup) {
-        final renderBox = element.renderObject as RenderBox?;
-        if (renderBox != null && renderBox.attached) {
-          final offset = renderBox.localToGlobal(Offset.zero).dy;
-          final height = renderBox.size.height;
-          final bottom = offset + height;
-
-          final listViewHeight = listViewBox.size.height;
-          if (offset < listViewHeight && bottom > 0) {
-            final group = widget.messages;
-            if (group.isNotEmpty &&
-                (firstVisibleDate == null ||
-                    group.first.createdAt.isBefore(firstVisibleDate!))) {
-              firstVisibleDate = group.first.createdAt;
-            }
-          }
-        }
-      }
-    });
-
-    if (firstVisibleDate != null && firstVisibleDate != _currentTopDate) {
-      setState(() {
-        _currentTopDate = firstVisibleDate;
-      });
-    }
   }
 
   Future<void> _loadProfileCache(String profileId) async {
@@ -173,7 +132,6 @@ class _ChatPageState extends State<ChatPage> {
         if (snapshot.hasData) {
           final rawMessages = snapshot.data!;
           final groupedMessages = <MessageGroup>[];
-          WidgetsBinding.instance.addPostFrameCallback((_) => _updateTopDate());
           for (final message in rawMessages.reversed) {
             final shouldStartNewGroup = groupedMessages.isEmpty ||
                 groupedMessages.last.profileId != message.profileId ||
@@ -199,44 +157,19 @@ class _ChatPageState extends State<ChatPage> {
                     : Stack(
                         children: [
                           Positioned.fill(
-                            child: ListView(
-                              controller: _scrollController,
-                              reverse: true,
-                              padding: EdgeInsets.all(12),
-                              children: _buildGroupedMessagesWithDateBadges(
-                                  groupedMessages),
-                            ),
-                          ),
-                          if (_currentTopDate != null)
-                            Positioned(
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              child: Center(
-                                child: Container(
-                                  margin:
-                                      const EdgeInsets.only(top: 8, bottom: 4),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black12,
-                                        blurRadius: 4,
-                                        offset: Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Text(
-                                    _formatBadgeDate(_currentTopDate!),
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                ),
+                            child: NotificationListener<ScrollNotification>(
+                              onNotification: (notification) {
+                                return false;
+                              },
+                              child: ListView(
+                                controller: _scrollController,
+                                reverse: true,
+                                padding: EdgeInsets.all(12),
+                                children: _buildGroupedMessagesWithDateBadges(
+                                    groupedMessages),
                               ),
                             ),
+                          ),
                         ],
                       ),
               ),
