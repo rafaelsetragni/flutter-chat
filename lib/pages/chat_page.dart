@@ -394,19 +394,12 @@ class _ChatBubble extends StatelessWidget {
     final isCurrentUser = message.isMine;
     return Align(
       alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment:
-            isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            padding: const EdgeInsets.fromLTRB(
-              12,
-              4,
-              12,
-              8,
-            ),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
             decoration: BoxDecoration(
               color: isCurrentUser ? Colors.blue : Colors.grey[300],
               borderRadius: BorderRadius.circular(12),
@@ -418,24 +411,19 @@ class _ChatBubble extends StatelessWidget {
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (!isCurrentUser && leadingText != null)
-                        Text(
-                          leadingText!,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: usernameColor ?? Colors.black87,
-                          ),
-                        ),
-                      Text(
-                        message.content,
-                        style: TextStyle(
-                          color: isCurrentUser ? Colors.white : Colors.black,
-                        ),
+                  if (!isCurrentUser && leadingText != null)
+                    Text(
+                      leadingText!,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: usernameColor ?? Colors.black87,
                       ),
-                    ],
+                    ),
+                  Text(
+                    message.content,
+                    style: TextStyle(
+                      color: isCurrentUser ? Colors.white : Colors.black,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -449,10 +437,18 @@ class _ChatBubble extends StatelessWidget {
               ),
             ),
           ),
-          if (hasTail && !isCurrentUser)
-            CustomPaint(
-              size: Size(16, 10),
-              painter: TrianglePainter(color: Colors.grey[300]!),
+          if (hasTail)
+            Positioned(
+              bottom: 4,
+              left: isCurrentUser ? null : 4,
+              right: isCurrentUser ? 4 : null,
+              child: CustomPaint(
+                size: const Size(16, 10),
+                painter: TrianglePainter(
+                  color: isCurrentUser ? Colors.blue : Colors.grey[300]!,
+                  isCurrentUser: isCurrentUser,
+                ),
+              ),
             ),
         ],
       ),
@@ -533,17 +529,27 @@ class _ChatBubbleGroup extends StatelessWidget {
 
 class TrianglePainter extends CustomPainter {
   final Color color;
+  final bool isCurrentUser;
 
-  TrianglePainter({required this.color});
+  TrianglePainter({required this.color, required this.isCurrentUser});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = color;
-    final path = Path()
-      ..moveTo(0, 0)
-      ..lineTo(size.width / 2, size.height)
-      ..lineTo(size.width, 0)
-      ..close();
+    final path = Path();
+
+    // Inverted triangle so it points upwards
+    if (isCurrentUser) {
+      path.moveTo(size.width, size.height);
+      path.lineTo(size.width / 2, 0);
+      path.lineTo(0, size.height);
+    } else {
+      path.moveTo(0, size.height);
+      path.lineTo(size.width / 2, 0);
+      path.lineTo(size.width, size.height);
+    }
+
+    path.close();
     canvas.drawPath(path, paint);
   }
 
