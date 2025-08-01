@@ -3,20 +3,13 @@ import 'dart:async';
 import 'package:chatpoc/models/message.dart';
 import 'package:chatpoc/models/profile.dart';
 import 'package:chatpoc/utils/constants.dart';
-import 'package:chatpoc/widgets/custom_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/chat_title_provider.dart';
-
-class MessageGroup {
-  final String profileId;
-  final List<Message> messages;
-
-  MessageGroup({required this.profileId, required this.messages});
-}
+import '../widgets/grouped_list_view.dart';
 
 /// Page to chat with someone.
 ///
@@ -54,7 +47,16 @@ class _ChatPageState extends State<ChatPage> {
         .map((maps) => maps
             .map((map) => Message.fromMap(map: map, myUserId: widget.userId))
             .toList());
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollController.addListener(_onScroll);
+    });
     super.initState();
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    // lógica futura de scroll, se necessário
   }
 
   @override
@@ -80,48 +82,48 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Scaffold(
-        appBar: AppBar(
-          title: Consumer<ChatProvider>(
-            builder: (_, provider, __) => Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                provider.buildChatAvatar(),
-                SizedBox(width: 8),
-                Text(provider.title ?? 'Chat'),
-              ],
-            ),
+      appBar: AppBar(
+        title: Consumer<ChatProvider>(
+          builder: (_, provider, __) => Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              provider.buildChatAvatar(),
+              SizedBox(width: 16),
+              Text(provider.title ?? 'Chat'),
+            ],
           ),
-          centerTitle: true,
-          elevation: 4,
-          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
-          shadowColor: Colors.black12,
-          actions: [
-            PopupMenuButton<String>(
-              icon: Icon(Icons.settings),
-              onSelected: (value) async {
-                if (value == 'logout') {
-                  await Supabase.instance.client.auth.signOut();
-                  Navigator.of(context).pop();
-                }
-              },
-              itemBuilder: (BuildContext context) {
-                return [
-                  const PopupMenuItem<String>(
-                    value: 'logout',
-                    child: Text('Logout'),
-                  ),
-                ];
-              },
-            ),
-          ],
         ),
-        body: GestureDetector(
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: _buildChatContent(),
-        ),
+        centerTitle: true,
+        elevation: 4,
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+        shadowColor: Colors.black12,
+        actions: [
+          PopupMenuButton<String>(
+            icon: Icon(Icons.settings),
+            onSelected: (value) async {
+              if (value == 'logout') {
+                await Supabase.instance.client.auth.signOut();
+                Navigator.of(context).pop();
+              }
+            },
+            itemBuilder: (BuildContext context) {
+              return [
+                const PopupMenuItem<String>(
+                  value: 'logout',
+                  child: Text('Logout'),
+                ),
+              ];
+            },
+          ),
+        ],
       ),
-      bottomNavigationBar: CustomNavigationBar(index: 2),
+      body: Column(
+        children: [
+          _buildChatContent(),
+          const _MessageBar(),
+        ],
+      ),
+      //bottomNavigationBar: CustomNavigationBar(index: 2),
     );
   }
 
@@ -129,89 +131,32 @@ class _ChatPageState extends State<ChatPage> {
     return StreamBuilder<List<Message>>(
       stream: _messagesStream,
       builder: (context, snapshot) {
-        if (snapshot.hasData) {
-          final rawMessages = snapshot.data!;
-          final groupedMessages = <MessageGroup>[];
-          for (final message in rawMessages.reversed) {
-            final shouldStartNewGroup = groupedMessages.isEmpty ||
-                groupedMessages.last.profileId != message.profileId ||
-                !_isSameDay(groupedMessages.last.messages.last.createdAt,
-                    message.createdAt);
+        if (!snapshot.hasData) return preloader;
 
-            if (shouldStartNewGroup) {
-              groupedMessages.add(MessageGroup(
-                profileId: message.profileId,
-                messages: [message],
-              ));
-            } else {
-              groupedMessages.last.messages.add(message);
-            }
-          }
-          return Column(
-            children: [
-              Expanded(
-                child: groupedMessages.isEmpty
-                    ? const Center(
-                        child: Text('Start your conversation now :)'),
-                      )
-                    : Stack(
-                        children: [
-                          Positioned.fill(
-                            child: NotificationListener<ScrollNotification>(
-                              onNotification: (notification) {
-                                return false;
-                              },
-                              child: ListView(
-                                controller: _scrollController,
-                                reverse: true,
-                                padding: EdgeInsets.all(12),
-                                children: _buildGroupedMessagesWithDateBadges(
-                                    groupedMessages),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-              const _MessageBar(),
-            ],
-          );
-        } else {
-          return preloader;
-        }
+        final rawMessages = snapshot.data!;
+        return Expanded(
+          child: GroupedListView<Message, DateTime>(
+            elements: rawMessages,
+            groupBy: (msg) => DateTime(
+              msg.createdAt.year,
+              msg.createdAt.month,
+              msg.createdAt.day,
+            ),
+            groupHeaderBuilder: (item) => _buildDateBadge(item.createdAt),
+            itemBuilder: (context, Message msg) {
+              _loadProfileCache(msg.profileId);
+              return _ChatBubble(message: msg);
+            },
+            floatingHeader: true,
+            useStickyGroupSeparators: true,
+            order: GroupedListOrder.DESC,
+            reverse: true,
+            controller: _scrollController,
+            padding: EdgeInsets.all(12),
+          ),
+        );
       },
     );
-  }
-
-  List<Widget> _buildGroupedMessagesWithDateBadges(
-      List<MessageGroup> groupedMessages) {
-    final widgets = <Widget>[];
-    for (var i = 0; i < groupedMessages.length; i++) {
-      final currentGroup = groupedMessages[i];
-      for (final message in currentGroup.messages) {
-        _loadProfileCache(message.profileId);
-      }
-      // Sort messages in group by createdAt before displaying
-      currentGroup.messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      widgets.add(_ChatBubbleGroup(
-        messages: currentGroup.messages,
-        profile: _profileCache[currentGroup.profileId],
-      ));
-
-      final isLastGroup = i == groupedMessages.length - 1;
-      final nextGroupDate =
-          !isLastGroup ? groupedMessages[i + 1].messages.first.createdAt : null;
-
-      if (isLastGroup ||
-          !_isSameDay(currentGroup.messages.first.createdAt, nextGroupDate!)) {
-        widgets.add(_buildDateBadge(currentGroup.messages.first.createdAt));
-      }
-    }
-    return widgets;
-  }
-
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   Widget _buildDateBadge(DateTime date) {
@@ -314,7 +259,6 @@ class _MessageBarState extends State<_MessageBar> {
 
   @override
   void dispose() {
-    _textController.dispose();
     super.dispose();
   }
 
@@ -427,10 +371,20 @@ class _ChatBubbleGroup extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isMine)
-            CircleAvatar(
-              child: profile == null
-                  ? preloader
-                  : Text(profile!.username.substring(0, 2)),
+            Container(
+              width: 40,
+              margin: const EdgeInsets.only(top: 4),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    child: profile == null
+                        ? preloader
+                        : Text(profile!.username.substring(0, 2)),
+                  ),
+                ],
+              ),
             ),
           Flexible(
             child: Column(
