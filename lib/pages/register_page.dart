@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
 import 'package:chatpoc/pages/chat_page.dart';
 import 'package:chatpoc/pages/login_page.dart';
 import 'package:chatpoc/utils/constants.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -41,12 +41,18 @@ class _RegisterPageState extends State<RegisterPage> {
           email: email, password: password, data: {'username': username});
       final userId = authResponse.user?.id;
       if (userId == null) {
-        context.showErrorSnackBar(message: 'A confirmation mail was sent to "$email". Please, confirm your account to proceed.');
+        context.showErrorSnackBar(
+            message:
+                'A confirmation mail was sent to "$email". Please, confirm your account to proceed.');
         return;
       }
 
-      Navigator.of(context)
-          .pushAndRemoveUntil(ChatPage.route(userId), (route) => false);
+      Navigator.of(context).pushAndRemoveUntil(
+          ChatPage.route(
+            userId,
+            'c553e86e-76e9-4efd-9b19-1c1ca41e9e3e',
+          ),
+          (route) => false);
     } on AuthException catch (error) {
       context.showErrorSnackBar(message: error.message);
     } catch (error) {

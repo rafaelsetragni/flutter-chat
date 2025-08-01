@@ -6,7 +6,10 @@ import 'package:chatpoc/utils/constants.dart';
 import 'package:chatpoc/widgets/custom_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../providers/chat_title_provider.dart';
 
 class MessageGroup {
   final String profileId;
@@ -20,12 +23,16 @@ class MessageGroup {
 /// Displays chat bubbles as a ListView and TextField to enter new chat.
 class ChatPage extends StatefulWidget {
   final String userId;
+  final String chatId;
 
-  const ChatPage({required this.userId, Key? key}) : super(key: key);
+  const ChatPage({required this.userId, required this.chatId, super.key});
 
-  static Route<void> route(String userId) {
+  static Route<void> route(String userId, String chatId) {
     return MaterialPageRoute(
-      builder: (context) => ChatPage(userId: userId),
+      builder: (context) => ChangeNotifierProvider(
+        create: (_) => ChatProvider(chatId: chatId),
+        child: ChatPage(userId: userId, chatId: chatId),
+      ),
     );
   }
 
@@ -43,21 +50,57 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     _messagesStream = supabase
         .from('tb_messages')
-        .stream(primaryKey: ['id']).map((maps) => maps
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: true)
+        .map((maps) => maps
             .map((map) => Message.fromMap(map: map, myUserId: widget.userId))
             .toList());
-    _updateTopDate();
     _scrollController.addListener(_updateTopDate);
     super.initState();
   }
 
+  @override
+  void didChangeDependencies() {
+    _updateTopDate();
+    super.didChangeDependencies();
+  }
+
   void _updateTopDate() {
-    // Placeholder logic: In a production app, you should determine the date of the first visible message.
-    // For now, we simulate using today's date if the list is scrolled.
-    setState(() {
-      // This is a placeholder; in a real implementation, you would determine the correct date.
-      _currentTopDate = DateTime.now();
+    if (!_scrollController.hasClients) return;
+
+    final context = _scrollController.position.context.storageContext;
+    final listViewBox = context.findRenderObject() as RenderBox?;
+    if (listViewBox == null || !listViewBox.attached) return;
+
+    DateTime? firstVisibleDate;
+
+    context.visitChildElements((element) {
+      final widget = element.widget;
+      if (widget is _ChatBubbleGroup) {
+        final renderBox = element.renderObject as RenderBox?;
+        if (renderBox != null && renderBox.attached) {
+          final offset = renderBox.localToGlobal(Offset.zero).dy;
+          final height = renderBox.size.height;
+          final bottom = offset + height;
+
+          final listViewHeight = listViewBox.size.height;
+          if (offset < listViewHeight && bottom > 0) {
+            final group = widget.messages;
+            if (group.isNotEmpty &&
+                (firstVisibleDate == null ||
+                    group.first.createdAt.isBefore(firstVisibleDate!))) {
+              firstVisibleDate = group.first.createdAt;
+            }
+          }
+        }
+      }
     });
+
+    if (firstVisibleDate != null && firstVisibleDate != _currentTopDate) {
+      setState(() {
+        _currentTopDate = firstVisibleDate;
+      });
+    }
   }
 
   Future<void> _loadProfileCache(String profileId) async {
@@ -80,13 +123,15 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       body: Scaffold(
         appBar: AppBar(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircleAvatar(),
-              SizedBox(width: 8),
-              const Text('Chat'),
-            ],
+          title: Consumer<ChatProvider>(
+            builder: (_, provider, __) => Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                provider.buildChatAvatar(),
+                SizedBox(width: 8),
+                Text(provider.title ?? 'Chat'),
+              ],
+            ),
           ),
           centerTitle: true,
           elevation: 4,
@@ -94,6 +139,7 @@ class _ChatPageState extends State<ChatPage> {
           shadowColor: Colors.black12,
           actions: [
             PopupMenuButton<String>(
+              icon: Icon(Icons.settings),
               onSelected: (value) async {
                 if (value == 'logout') {
                   await Supabase.instance.client.auth.signOut();
@@ -127,9 +173,14 @@ class _ChatPageState extends State<ChatPage> {
         if (snapshot.hasData) {
           final rawMessages = snapshot.data!;
           final groupedMessages = <MessageGroup>[];
+          WidgetsBinding.instance.addPostFrameCallback((_) => _updateTopDate());
           for (final message in rawMessages.reversed) {
-            if (groupedMessages.isEmpty ||
-                groupedMessages.last.profileId != message.profileId) {
+            final shouldStartNewGroup = groupedMessages.isEmpty ||
+                groupedMessages.last.profileId != message.profileId ||
+                !_isSameDay(groupedMessages.last.messages.last.createdAt,
+                    message.createdAt);
+
+            if (shouldStartNewGroup) {
               groupedMessages.add(MessageGroup(
                 profileId: message.profileId,
                 messages: [message],
@@ -148,21 +199,12 @@ class _ChatPageState extends State<ChatPage> {
                     : Stack(
                         children: [
                           Positioned.fill(
-                            child: ListView.builder(
+                            child: ListView(
                               controller: _scrollController,
                               reverse: true,
-                              itemCount: groupedMessages.length,
                               padding: EdgeInsets.all(12),
-                              itemBuilder: (context, index) {
-                                final group = groupedMessages[index];
-                                for (final message in group.messages) {
-                                  _loadProfileCache(message.profileId);
-                                }
-                                return _ChatBubbleGroup(
-                                  messages: group.messages,
-                                  profile: _profileCache[group.profileId],
-                                );
-                              },
+                              children: _buildGroupedMessagesWithDateBadges(
+                                  groupedMessages),
                             ),
                           ),
                           if (_currentTopDate != null)
@@ -205,6 +247,61 @@ class _ChatPageState extends State<ChatPage> {
           return preloader;
         }
       },
+    );
+  }
+
+  List<Widget> _buildGroupedMessagesWithDateBadges(
+      List<MessageGroup> groupedMessages) {
+    final widgets = <Widget>[];
+    for (var i = 0; i < groupedMessages.length; i++) {
+      final currentGroup = groupedMessages[i];
+      for (final message in currentGroup.messages) {
+        _loadProfileCache(message.profileId);
+      }
+      // Sort messages in group by createdAt before displaying
+      currentGroup.messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      widgets.add(_ChatBubbleGroup(
+        messages: currentGroup.messages,
+        profile: _profileCache[currentGroup.profileId],
+      ));
+
+      final isLastGroup = i == groupedMessages.length - 1;
+      final nextGroupDate =
+          !isLastGroup ? groupedMessages[i + 1].messages.first.createdAt : null;
+
+      if (isLastGroup ||
+          !_isSameDay(currentGroup.messages.first.createdAt, nextGroupDate!)) {
+        widgets.add(_buildDateBadge(currentGroup.messages.first.createdAt));
+      }
+    }
+    return widgets;
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  Widget _buildDateBadge(DateTime date) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(top: 8, bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 4,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Text(
+          _formatBadgeDate(date),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
     );
   }
 }
@@ -296,8 +393,11 @@ class _MessageBarState extends State<_MessageBar> {
     }
     _textController.clear();
     try {
-      await supabase.from('messages').insert({
+      await supabase.from('tb_messages').insert({
         'profile_id': myUserId,
+        'chat_id':
+            (context.findAncestorWidgetOfExactType<ChatPage>() as ChatPage)
+                .chatId,
         'content': text,
       });
     } on PostgrestException catch (error) {
