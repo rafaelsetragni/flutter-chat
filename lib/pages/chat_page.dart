@@ -400,8 +400,9 @@ class _ChatBubble extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+            constraints: BoxConstraints(minWidth: 72),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            padding: EdgeInsets.fromLTRB(12, isCurrentUser ? 8 : 4, 12, 8),
             decoration: BoxDecoration(
               color: isCurrentUser ? Colors.blue : Colors.grey[300],
               borderRadius: BorderRadius.circular(12),
@@ -441,7 +442,7 @@ class _ChatBubble extends StatelessWidget {
           ),
           if (hasTail)
             Positioned(
-              bottom: 4,
+              bottom: 2,
               left: isCurrentUser ? null : 4,
               right: isCurrentUser ? 4 : null,
               child: CustomPaint(
