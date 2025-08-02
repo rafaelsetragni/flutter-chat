@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class ChatProvider extends ChangeNotifier {
+class ChatTitleProvider extends ChangeNotifier {
   final String chatId;
   final SupabaseClient _client;
   RealtimeChannel? _channel;
@@ -11,7 +11,7 @@ class ChatProvider extends ChangeNotifier {
   String? description;
   String? avatarUrl;
 
-  ChatProvider({
+  ChatTitleProvider({
     required this.chatId,
     SupabaseClient? client,
   }) : _client = client ?? Supabase.instance.client {

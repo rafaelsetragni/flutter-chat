@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:chatpoc/models/message.dart';
 import 'package:chatpoc/models/profile.dart';
 import 'package:chatpoc/utils/constants.dart';
@@ -8,7 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../providers/chat_title_provider.dart';
+import '../providers/chat_provider.dart';
+import '../providers/profile_provider.dart';
 import '../widgets/grouped_list_view.dart';
 
 final List<Color> userColors = [
@@ -49,8 +48,15 @@ class ChatPage extends StatefulWidget {
 
   static Route<void> route(String userId, String chatId) {
     return MaterialPageRoute(
-      builder: (context) => ChangeNotifierProvider(
-        create: (_) => ChatProvider(chatId: chatId),
+      builder: (context) => MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) => ChatProvider(chatId: chatId, userId: userId),
+          ),
+          ChangeNotifierProvider(
+            create: (_) => ProfileProvider(),
+          ),
+        ],
         child: ChatPage(userId: userId, chatId: chatId),
       ),
     );
@@ -61,9 +67,9 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  late final Stream<List<Message>> _messagesStream;
-  final Map<String, Profile> _profileCache = {};
   final ScrollController _scrollController = ScrollController();
+
+  late final ChatProvider provider;
 
   final Map<String, Color> _userColorMap = {};
 
@@ -85,14 +91,6 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void initState() {
-    _messagesStream = supabase
-        .from('tb_messages')
-        .stream(primaryKey: ['id'])
-        .order('created_at', ascending: true)
-        .map((maps) => maps
-            .map((map) => Message.fromMap(map: map, myUserId: widget.userId))
-            .toList());
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollController.addListener(_onScroll);
     });
@@ -107,22 +105,13 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    if (_isProviderInitialized) return;
+    provider = Provider.of<ChatProvider>(context, listen: false);
+    _isProviderInitialized = true;
   }
 
-  Future<void> _loadProfileCache(String profileId) async {
-    if (_profileCache[profileId] != null) {
-      return;
-    }
-    final data = await supabase
-        .from('tb_profiles')
-        .select()
-        .eq('id', profileId)
-        .single();
-    final profile = Profile.fromMap(data);
-    setState(() {
-      _profileCache[profileId] = profile;
-    });
-  }
+  bool _isProviderInitialized = false;
 
   @override
   Widget build(BuildContext context) {
@@ -185,32 +174,32 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildChatContent() {
     return Expanded(
-      child: StreamBuilder<List<Message>>(
-        stream: _messagesStream,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return Center(child: preloader);
-          }
+      child: Consumer<ChatProvider>(
+        builder: (context, provider, _) {
+          final rawMessages = provider.messages;
+          final groupedMessages = _groupMessagesByUserAndDay(rawMessages);
 
-          final rawMessages = snapshot.data!;
           return GroupedListView<List<Message>, String>(
-            elements: _groupMessagesByUserAndDay(rawMessages),
+            elements: groupedMessages,
             groupBy: (group) => DateTime(
               group.first.createdAt.year,
               group.first.createdAt.month,
               group.first.createdAt.day,
             ).toIso8601String(),
-            groupHeaderBuilder: (group) {
-              final date = group.first.createdAt;
-              return _buildDateBadge(date);
-            },
-            itemBuilder: (context, List<Message> group) {
+            groupHeaderBuilder: (group) =>
+                _buildDateBadge(group.first.createdAt),
+            itemBuilder: (context, group) {
               final profileId = group.first.profileId;
-              _loadProfileCache(profileId);
-              return _ChatBubbleGroup(
-                messages: group,
-                profile: _profileCache[profileId],
-                userColor: _getUserColor(profileId),
+              return Consumer<ProfileProvider>(
+                builder: (context, profileProvider, _) {
+                  final profile = profileProvider.getCachedProfile(profileId);
+                  profileProvider.fetchProfile(profileId);
+                  return _ChatBubbleGroup(
+                    messages: group,
+                    profile: profile,
+                    userColor: provider.getUserColor(profileId),
+                  );
+                },
               );
             },
             floatingHeader: true,
