@@ -268,6 +268,7 @@ class GroupedListView<T, E> extends StatefulWidget {
 }
 
 class _GroupedListViewState<T, E> extends State<GroupedListView<T, E>> {
+  double? _lastMaxHeight;
   final StreamController<int> _streamController = StreamController<int>();
   final LinkedHashMap<String, GlobalKey> _keys = LinkedHashMap();
   final GlobalKey _key = GlobalKey();
@@ -277,6 +278,8 @@ class _GroupedListViewState<T, E> extends State<GroupedListView<T, E>> {
   int _topElementIndex = 0;
   RenderBox? _headerBox;
   RenderBox? _listBox;
+  DateTime? _lastUpdate;
+  Timer? _debounce;
 
   /// Fix for backwards compatability
   ///
@@ -301,6 +304,7 @@ class _GroupedListViewState<T, E> extends State<GroupedListView<T, E>> {
     if (widget.controller == null) {
       _controller.dispose();
     }
+    _debounce?.cancel();
     _streamController.close();
     super.dispose();
   }
@@ -356,9 +360,25 @@ class _GroupedListViewState<T, E> extends State<GroupedListView<T, E>> {
       children: <Widget>[
         LayoutBuilder(
           builder: (context, constraints) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _scrollListener();
-            });
+            final newMaxHeight = constraints.biggest.height;
+            final now = DateTime.now();
+            final durationSinceLastUpdate = _lastUpdate == null
+                ? const Duration(days: 365 * 100)
+                : now.difference(_lastUpdate!);
+
+            if (_lastMaxHeight != newMaxHeight) {
+              _lastMaxHeight = newMaxHeight;
+              if (durationSinceLastUpdate > const Duration(milliseconds: 250)) {
+                _scrollListener();
+                _lastUpdate = now;
+              } else {
+                _debounce?.cancel();
+                _debounce = Timer(const Duration(milliseconds: 250), () {
+                  _scrollListener();
+                  _lastUpdate = DateTime.now();
+                });
+              }
+            }
             return ListView.builder(
               scrollDirection: widget.scrollDirection,
               controller: _controller,
