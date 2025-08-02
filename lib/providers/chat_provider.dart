@@ -57,37 +57,24 @@ class ChatProvider extends ChangeNotifier {
   String? title;
 
   void _listenToMessages() {
-    _subscription = supabase
-        .from('tb_messages')
-        .stream(primaryKey: ['id'])
-        .eq('chat_id', chatId)
-        .order('created_at', ascending: true)
-        .map((maps) => maps
-            .map((map) => Message.fromMap(map: map, myUserId: userId))
-            .toList())
-        .listen((data) {
-          _messages
-            ..clear()
-            ..addAll(data);
-          notifyListeners();
-        });
+    _subscription =
+        MessageRepository().listenToMessages(chatId, userId).listen((data) {
+      _messages
+        ..clear()
+        ..addAll(data);
+      notifyListeners();
+    });
   }
 
   void _listenToChatMetadata() {
-    supabase
-        .from('tb_chats')
-        .stream(primaryKey: ['id'])
-        .eq('id', chatId)
-        .limit(1)
-        .listen((data) {
-          if (data.isEmpty) return;
-          final chat = data.first;
-          title = chat['title'] as String?;
-          subtitle = chat['subtitle'] as String?;
-          description = chat['description'] as String?;
-          avatarUrl = chat['avatar_url'] as String?;
-          notifyListeners();
-        });
+    ChatRepository(chatId).listenToMetadata().listen((chat) {
+      if (chat.isEmpty) return;
+      title = chat['title'] as String?;
+      subtitle = chat['subtitle'] as String?;
+      description = chat['description'] as String?;
+      avatarUrl = chat['avatar_url'] as String?;
+      notifyListeners();
+    });
   }
 
   Widget buildChatAvatar({double radius = 20}) {
@@ -112,15 +99,15 @@ class ChatProvider extends ChangeNotifier {
     if (profileCache.containsKey(profileId)) {
       return profileCache[profileId];
     }
-    final data = await supabase
-        .from('tb_profiles')
-        .select()
-        .eq('id', profileId)
-        .single();
-    final profile = Profile.fromMap(data);
-    profileCache[profileId] = profile;
-    notifyListeners();
-    return profile;
+
+    try {
+      final profile = await ProfileRepository().fetchProfile(profileId);
+      profileCache[profileId] = profile;
+      notifyListeners();
+      return profile;
+    } catch (_) {
+      return null;
+    }
   }
 
   Color getUserColor(String profileId) {
@@ -143,5 +130,44 @@ class ChatProvider extends ChangeNotifier {
   void dispose() {
     _subscription?.cancel();
     super.dispose();
+  }
+}
+
+class ChatRepository {
+  final String chatId;
+
+  ChatRepository(this.chatId);
+
+  Stream<Map<String, dynamic>> listenToMetadata() {
+    return supabase
+        .from('tb_chats')
+        .stream(primaryKey: ['id'])
+        .eq('id', chatId)
+        .limit(1)
+        .map((list) => list.isNotEmpty ? list.first : {});
+  }
+}
+
+class MessageRepository {
+  Stream<List<Message>> listenToMessages(String chatId, String userId) {
+    return supabase
+        .from('tb_messages')
+        .stream(primaryKey: ['id'])
+        .eq('chat_id', chatId)
+        .order('created_at', ascending: true)
+        .map((maps) => maps
+            .map((map) => Message.fromMap(map: map, myUserId: userId))
+            .toList());
+  }
+}
+
+class ProfileRepository {
+  Future<Profile> fetchProfile(String profileId) async {
+    final data = await supabase
+        .from('tb_profiles')
+        .select()
+        .eq('id', profileId)
+        .single();
+    return Profile.fromMap(data);
   }
 }
