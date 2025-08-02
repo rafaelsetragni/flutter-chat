@@ -1,3 +1,8 @@
+import 'package:hive/hive.dart';
+
+part 'message.g.dart';
+
+@HiveType(typeId: 0)
 class Message {
   Message({
     required this.id,
@@ -5,29 +10,48 @@ class Message {
     required this.content,
     required this.createdAt,
     required this.isMine,
+    this.chatId,
   });
 
-  /// ID of the message
+  @HiveField(0)
   final String id;
 
-  /// ID of the user who posted the message
+  @HiveField(1)
   final String profileId;
 
-  /// Text content of the message
+  @HiveField(2)
   final String content;
 
-  /// Date and time when the message was created
+  @HiveField(3)
   final DateTime createdAt;
 
-  /// Whether the message is sent by the user or not.
+  @HiveField(4)
   final bool isMine;
 
-  Message.fromMap({
+  @HiveField(5)
+  final String? chatId;
+
+  factory Message.fromMap({
     required Map<String, dynamic> map,
     required String myUserId,
-  })  : id = map['id'],
-        profileId = map['profile_id'],
-        content = map['content'],
-        createdAt = DateTime.parse(map['created_at']),
-        isMine = myUserId == map['profile_id'];
+  }) {
+    return Message(
+      id: map['id'] as String,
+      profileId: map['profile_id'] as String,
+      content: map['content'] as String,
+      createdAt: DateTime.parse(map['created_at'] as String),
+      chatId: map['chat_id'] as String?,
+      isMine: myUserId == map['profile_id'],
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'profile_id': profileId,
+      'content': content,
+      'created_at': createdAt.toIso8601String(),
+      'chat_id': chatId,
+    };
+  }
 }
