@@ -182,9 +182,9 @@ class _ChatPageState extends State<ChatPage> {
           return GroupedListView<List<Message>, String>(
             elements: groupedMessages,
             groupBy: (group) => DateTime(
-              group.first.createdAt.year,
-              group.first.createdAt.month,
-              group.first.createdAt.day,
+              group.first.createdAt.toLocal().year,
+              group.first.createdAt.toLocal().month,
+              group.first.createdAt.toLocal().day,
             ).toIso8601String(),
             groupHeaderBuilder: (group) =>
                 _buildDateBadge(group.first.createdAt),
@@ -346,22 +346,15 @@ class _MessageBarState extends State<_MessageBar> {
 
   void _submitMessage() async {
     final text = _textController.text;
-    final myUserId = supabase.auth.currentUser!.id;
-    if (text.isEmpty) {
-      return;
-    }
+    if (text.isEmpty) return;
     _textController.clear();
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     try {
-      await supabase.from('tb_messages').insert({
-        'profile_id': myUserId,
-        'chat_id':
-            (context.findAncestorWidgetOfExactType<ChatPage>() as ChatPage)
-                .chatId,
-        'content': text,
-      });
-    } on PostgrestException catch (error) {
-      context.showErrorSnackBar(message: error.message);
-    } catch (_) {
+      await chatProvider.submitMessage(
+        (context.findAncestorWidgetOfExactType<ChatPage>() as ChatPage).chatId,
+        text,
+      );
+    } catch (e) {
       context.showErrorSnackBar(message: unexpectedErrorMessage);
     }
   }
@@ -419,7 +412,7 @@ class _ChatBubble extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    DateFormat('HH:mm').format(message.createdAt),
+                    DateFormat('HH:mm').format(message.createdAt.toLocal()),
                     style: TextStyle(
                       fontSize: 10,
                       color: isCurrentUser ? Colors.white70 : Colors.black54,
@@ -459,7 +452,7 @@ class MessageTime extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      DateFormat('HH:mm').format(message.createdAt),
+      DateFormat('HH:mm').format(message.createdAt.toLocal()),
       style: Theme.of(context).textTheme.labelSmall,
     );
   }
@@ -550,17 +543,18 @@ class TrianglePainter extends CustomPainter {
 }
 
 String _formatBadgeDate(DateTime date) {
-  final now = DateTime.now();
-  final difference = now.difference(date).inDays;
+  final now = DateTime.now().toLocal();
+  final localDate = date.toLocal();
+  final difference = now.difference(localDate).inDays;
 
-  if (difference == 0 && now.day == date.day) {
+  if (difference == 0 && now.day == localDate.day) {
     return 'Today';
-  } else if (difference == 1 || (difference == 0 && now.day != date.day)) {
+  } else if (difference == 1 || (difference == 0 && now.day != localDate.day)) {
     return 'Yesterday';
   } else if (difference < 7) {
-    return _weekdayName(date.weekday);
+    return _weekdayName(localDate.weekday);
   } else {
-    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+    return '${localDate.day.toString().padLeft(2, '0')}/${localDate.month.toString().padLeft(2, '0')}/${localDate.year}';
   }
 }
 

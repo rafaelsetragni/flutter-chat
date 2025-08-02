@@ -143,6 +143,10 @@ class ChatProvider extends ChangeNotifier {
     _subscription?.cancel();
     super.dispose();
   }
+
+  Future<void> submitMessage(String chatId, String text) async {
+    await _messageRepository.submitMessage(text: text, chatId: chatId);
+  }
 }
 
 class ChatRepository {
@@ -197,6 +201,16 @@ class MessageRepository {
 
     messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return messages;
+  }
+
+  Future<void> submitMessage(
+      {required String text, required String chatId}) async {
+    final myUserId = supabase.auth.currentUser!.id;
+    await supabase.from('tb_messages').insert({
+      'profile_id': myUserId,
+      'chat_id': chatId,
+      'content': text,
+    });
   }
 }
 
