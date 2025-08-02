@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
 
 import '../models/message.dart';
 import '../models/profile.dart';
@@ -19,9 +20,13 @@ class ChatProvider extends ChangeNotifier {
   final Map<String, Color> _userColorMap = {};
 
   StreamSubscription<List<Message>>? _subscription;
+  late final MessageRepository _messageRepository;
 
   ChatProvider({required this.chatId, required this.userId}) {
-    _listenToMessages();
+    Hive.openBox('messages').then((box) {
+      _messageRepository = MessageRepository(box);
+      _listenToMessages();
+    });
     _listenToChatMetadata();
   }
 
@@ -57,8 +62,15 @@ class ChatProvider extends ChangeNotifier {
   String? title;
 
   void _listenToMessages() {
+    _messageRepository.loadCachedMessages(chatId, userId).then((cached) {
+      _messages
+        ..clear()
+        ..addAll(cached);
+      notifyListeners();
+    });
+
     _subscription =
-        MessageRepository().listenToMessages(chatId, userId).listen((data) {
+        _messageRepository.listenToMessages(chatId, userId).listen((data) {
       _messages
         ..clear()
         ..addAll(data);
@@ -149,25 +161,79 @@ class ChatRepository {
 }
 
 class MessageRepository {
+  final Box _messageBox;
+
+  MessageRepository(this._messageBox);
+
   Stream<List<Message>> listenToMessages(String chatId, String userId) {
-    return supabase
+    final controller = StreamController<List<Message>>();
+
+    supabase
         .from('tb_messages')
         .stream(primaryKey: ['id'])
         .eq('chat_id', chatId)
         .order('created_at', ascending: true)
-        .map((maps) => maps
-            .map((map) => Message.fromMap(map: map, myUserId: userId))
-            .toList());
+        .listen((maps) async {
+          final messages = maps
+              .map((map) => Message.fromMap(map: map, myUserId: userId))
+              .toList();
+
+          for (final message in maps) {
+            await _messageBox.put(message['id'], message);
+          }
+
+          controller.add(messages);
+        });
+
+    return controller.stream;
+  }
+
+  Future<List<Message>> loadCachedMessages(String chatId, String userId) async {
+    final cached = _messageBox.values.where((m) => m['chat_id'] == chatId);
+    final messages = cached
+        .map((map) => Message.fromMap(
+            map: Map<String, dynamic>.from(map), myUserId: userId))
+        .toList();
+
+    messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return messages;
   }
 }
 
 class ProfileRepository {
   Future<Profile> fetchProfile(String profileId) async {
+    final box = await Hive.openBox('profiles');
+    final cached = box.get(profileId);
+
+    if (cached != null && cached is Map<String, dynamic>) {
+      final profile = Profile.fromMap(cached);
+      final remote = await supabase
+          .from('tb_profiles')
+          .select()
+          .eq('id', profileId)
+          .single();
+
+      final remoteUpdatedAt = DateTime.tryParse(remote['updated_at'] ?? '');
+      final localUpdatedAt = DateTime.tryParse(cached['updated_at'] ?? '');
+
+      if (remoteUpdatedAt != null &&
+          localUpdatedAt != null &&
+          !remoteUpdatedAt.isAfter(localUpdatedAt)) {
+        return profile;
+      }
+
+      // Dados no Supabase são mais novos — atualizar cache
+      await box.put(profileId, remote);
+      return Profile.fromMap(remote);
+    }
+
     final data = await supabase
         .from('tb_profiles')
         .select()
         .eq('id', profileId)
         .single();
+
+    await box.put(profileId, data);
     return Profile.fromMap(data);
   }
 }
