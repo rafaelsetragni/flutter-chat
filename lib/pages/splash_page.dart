@@ -1,7 +1,7 @@
+import 'package:chatpoc/pages/chat_page.dart';
+import 'package:chatpoc/pages/login_page.dart';
+import 'package:chatpoc/utils/constants.dart';
 import 'package:flutter/material.dart';
-import 'package:my_chat_app/pages/chat_page.dart';
-import 'package:my_chat_app/pages/register_page.dart';
-import 'package:my_chat_app/utils/constants.dart';
 
 /// Page to redirect users to the appropriate page depending on the initial auth state
 class SplashPage extends StatefulWidget {
@@ -25,11 +25,23 @@ class SplashPageState extends State<SplashPage> {
     final session = supabase.auth.currentSession;
     if (session == null) {
       Navigator.of(context)
-          .pushAndRemoveUntil(RegisterPage.route(), (route) => false);
-    } else {
-      Navigator.of(context)
-          .pushAndRemoveUntil(ChatPage.route(), (route) => false);
+          .pushAndRemoveUntil(LoginPage.route(), (route) => false);
+      return;
     }
+
+    final myUserId = supabase.auth.currentUser?.id;
+    if (myUserId == null) {
+      Navigator.of(context)
+          .pushAndRemoveUntil(LoginPage.route(), (route) => false);
+      return;
+    }
+
+    Navigator.of(context).pushAndRemoveUntil(
+        ChatPage.route(
+          myUserId,
+          'c553e86e-76e9-4efd-9b19-1c1ca41e9e3e',
+        ),
+        (route) => false);
   }
 
   @override

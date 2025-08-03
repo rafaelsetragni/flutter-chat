@@ -1,6 +1,6 @@
+import 'package:chatpoc/pages/chat_page.dart';
+import 'package:chatpoc/utils/constants.dart';
 import 'package:flutter/material.dart';
-import 'package:my_chat_app/pages/chat_page.dart';
-import 'package:my_chat_app/utils/constants.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LoginPage extends StatefulWidget {
@@ -28,8 +28,16 @@ class _LoginPageState extends State<LoginPage> {
         email: _emailController.text,
         password: _passwordController.text,
       );
-      Navigator.of(context)
-          .pushAndRemoveUntil(ChatPage.route(), (route) => false);
+      final myUserId = supabase.auth.currentUser?.id;
+      if (myUserId != null) {
+        Navigator.of(context).pushAndRemoveUntil(
+            ChatPage.route(
+              myUserId,
+              // TODO: fetch from chat list
+              'c553e86e-76e9-4efd-9b19-1c1ca41e9e3e',
+            ),
+            (route) => false);
+      }
     } on AuthException catch (error) {
       context.showErrorSnackBar(message: error.message);
     } catch (_) {
@@ -72,6 +80,12 @@ class _LoginPageState extends State<LoginPage> {
             onPressed: _isLoading ? null : _signIn,
             child: const Text('Login'),
           ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).push(LoginPage.route());
+            },
+            child: const Text('I do not have an account. Register one'),
+          )
         ],
       ),
     );

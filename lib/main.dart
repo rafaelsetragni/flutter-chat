@@ -1,15 +1,31 @@
+import 'package:chatpoc/pages/splash_page.dart';
+import 'package:chatpoc/utils/constants.dart';
 import 'package:flutter/material.dart';
-import 'package:my_chat_app/utils/constants.dart';
+import 'package:flutter/services.dart';
+import 'package:hive/hive.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:my_chat_app/pages/splash_page.dart';
+
+import 'models/message.dart';
+import 'models/profile.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  final dir = await getApplicationDocumentsDirectory();
+  Hive.init(dir.path);
+  Hive.registerAdapter(ProfileAdapter());
+  Hive.registerAdapter(MessageAdapter());
+
   await Supabase.initialize(
-    // TODO: Replace credentials with your own
-    url: 'SUPABASE_URL',
-    anonKey: 'SUPABASE_ANON_KEY',
+    url: 'https://mpykvngknvdnphclcacd.supabase.co',
+    anonKey:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1weWt2bmdrbnZkbnBoY2xjYWNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMyNTgyNDIsImV4cCI6MjA2ODgzNDI0Mn0.Sqy5_lcLWlc9vDVnMSmnJJIAXBw0omX2yZWJCMDwBDg',
   );
   runApp(const MyApp());
 }
