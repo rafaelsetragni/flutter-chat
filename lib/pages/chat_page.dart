@@ -51,10 +51,10 @@ class ChatPage extends StatefulWidget {
       builder: (context) => MultiProvider(
         providers: [
           ChangeNotifierProvider(
-            create: (_) => ChatProvider(chatId: chatId, userId: userId),
-          ),
-          ChangeNotifierProvider(
-            create: (_) => ProfileProvider(),
+            create: (_) => MessageProvider(
+              userId: userId,
+              chatId: chatId,
+            ),
           ),
         ],
         child: ChatPage(userId: userId, chatId: chatId),
@@ -174,9 +174,9 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildChatContent() {
     return Expanded(
-      child: Consumer<ChatProvider>(
-        builder: (context, provider, _) {
-          final rawMessages = provider.messages;
+      child: Consumer<MessageProvider>(
+        builder: (context, messageProvider, _) {
+          final rawMessages = messageProvider.messages;
           final groupedMessages = _groupMessagesByUserAndDay(rawMessages);
 
           return GroupedListView<List<Message>, String>(
@@ -197,7 +197,7 @@ class _ChatPageState extends State<ChatPage> {
                   return _ChatBubbleGroup(
                     messages: group,
                     profile: profile,
-                    userColor: provider.getUserColor(profileId),
+                    userColor: messageProvider.getUserColor(profileId),
                   );
                 },
               );
@@ -269,8 +269,8 @@ class _ChatPageState extends State<ChatPage> {
 /// Set of widget that contains TextField and Button to submit message
 class _MessageBar extends StatefulWidget {
   const _MessageBar({
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   State<_MessageBar> createState() => _MessageBarState();
@@ -348,12 +348,9 @@ class _MessageBarState extends State<_MessageBar> {
     final text = _textController.text;
     if (text.isEmpty) return;
     _textController.clear();
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final chatProvider = Provider.of<MessageProvider>(context, listen: false);
     try {
-      await chatProvider.submitMessage(
-        (context.findAncestorWidgetOfExactType<ChatPage>() as ChatPage).chatId,
-        text,
-      );
+      await chatProvider.submitMessage(text);
     } catch (e) {
       context.showErrorSnackBar(message: unexpectedErrorMessage);
     }
