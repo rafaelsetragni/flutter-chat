@@ -23,10 +23,10 @@ Future<void> main() async {
   Hive.registerAdapter(MessageAdapter());
 
   await Supabase.initialize(
-    url: 'https://mpykvngknvdnphclcacd.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1weWt2bmdrbnZkbnBoY2xjYWNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMyNTgyNDIsImV4cCI6MjA2ODgzNDI0Mn0.Sqy5_lcLWlc9vDVnMSmnJJIAXBw0omX2yZWJCMDwBDg',
+    url: SupabaseConfig.URL,
+    anonKey: SupabaseConfig.ANON_KEY,
   );
+
   runApp(const MyApp());
 }
 
