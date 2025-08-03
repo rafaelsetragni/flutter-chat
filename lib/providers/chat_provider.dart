@@ -3,83 +3,71 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 
+import '../constants/safe_colors.dart';
+import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/profile.dart';
 import '../utils/constants.dart';
 
 class ChatProvider extends ChangeNotifier {
-  final String chatId;
+  static ChatProvider? _instance;
+
+  factory ChatProvider() {
+    ChatProvider? instance = _instance;
+    if (instance == null) {
+      throw Exception('ChatProvider not initialized');
+    }
+    return instance;
+  }
+
   final String userId;
+  final List<Chat> chats = [];
+  late final ChatRepository _chatRepository;
+
+  StreamSubscription<dynamic>? _membershipSubscription;
+
+  // ----------------------------------------
 
   String? subtitle;
   String? description;
   String? avatarUrl;
 
-  final List<Message> _messages = [];
   final Map<String, Profile> profileCache = {};
   final Map<String, Color> _userColorMap = {};
 
-  StreamSubscription<List<Message>>? _subscription;
-  late final MessageRepository _messageRepository;
-
-  ChatProvider({required this.chatId, required this.userId}) {
-    Hive.openBox('messages').then((box) {
-      _messageRepository = MessageRepository(box);
-      _listenToMessages();
-    });
-    _listenToChatMetadata();
+  ChatProvider._internal(this.userId) {
+    _chatRepository = ChatRepository(userId);
+    _listenToMembershipChanges();
   }
 
-  List<Message> get messages => List.unmodifiable(_messages);
+  static void initialize(String userId) {
+    _instance ??= ChatProvider._internal(userId);
+  }
 
-  final List<Color> userColors = [
-    Colors.red,
-    Colors.green,
-    Colors.blue,
-    Colors.orange,
-    Colors.purple,
-    Colors.cyan,
-    Colors.amber,
-    Colors.teal,
-    Colors.indigo,
-    Colors.pink,
-    Colors.lime,
-    Colors.brown,
-    Colors.deepOrange,
-    Colors.deepPurple,
-    Colors.lightBlue,
-    Colors.lightGreen,
-    Colors.yellow,
-    Colors.grey,
-    Colors.blueGrey,
-    Colors.lightGreenAccent,
-    Colors.orangeAccent,
-    Colors.pinkAccent,
-    Colors.purpleAccent,
-    Colors.tealAccent,
-  ];
+  @override
+  void dispose() {
+    _membershipSubscription?.cancel();
+    _instance = null;
+    super.dispose();
+  }
 
   String? title;
 
-  void _listenToMessages() {
-    _messageRepository.loadCachedMessages(chatId, userId).then((cached) {
-      _messages
-        ..clear()
-        ..addAll(cached);
-      notifyListeners();
-    });
+  final List<Message> _messages = [];
 
-    _subscription =
-        _messageRepository.listenToMessages(chatId, userId).listen((data) {
-      _messages
-        ..clear()
-        ..addAll(data);
-      notifyListeners();
-    });
+  Future<List<Chat>> fetchChats() async {
+    final loadedChats = await _chatRepository.fetchUserChats();
+    chats
+      ..clear()
+      ..addAll(loadedChats);
+    notifyListeners();
+    return chats;
   }
 
-  void _listenToChatMetadata() {
-    ChatRepository(chatId).listenToMetadata().listen((chat) {
+  bool get isEmpty => chats.isEmpty;
+
+  void _listenToChatMetadata(String chatId) {
+    ChatRepository.listenToMetadata(chatId).listen((chat) {
       if (chat.isEmpty) return;
       title = chat['title'] as String?;
       subtitle = chat['subtitle'] as String?;
@@ -87,6 +75,33 @@ class ChatProvider extends ChangeNotifier {
       avatarUrl = chat['avatar_url'] as String?;
       notifyListeners();
     });
+  }
+
+  void _listenToMembershipChanges() {
+    _membershipSubscription = supabase
+        .from('tr_chat_members')
+        .stream(primaryKey: ['chat_id', 'profile_id'])
+        .eq('profile_id', userId)
+        .listen((rows) async {
+          final newChatIds = rows.map((r) => r['chat_id'] as String).toSet();
+          final currentChatIds = chats.map((c) => c.id).toSet();
+
+          // Adicionar novas conversas
+          final toAdd = newChatIds.difference(currentChatIds);
+          if (toAdd.isNotEmpty) {
+            final newChats = await supabase
+                .from('tb_chats')
+                .select()
+                .inFilter('id', toAdd.toList());
+            chats.addAll(newChats.map((c) => Chat.fromMap(c)));
+          }
+
+          // Remover conversas que não existem mais
+          final toRemove = currentChatIds.difference(newChatIds);
+          chats.removeWhere((chat) => toRemove.contains(chat.id));
+
+          notifyListeners();
+        });
   }
 
   Widget buildChatAvatar({double radius = 20}) {
@@ -121,6 +136,10 @@ class ChatProvider extends ChangeNotifier {
       return null;
     }
   }
+}
+
+class MessageProvider extends ChangeNotifier {
+  final Map<String, Color> _userColorMap = {};
 
   Color getUserColor(String profileId) {
     if (_userColorMap.containsKey(profileId)) {
@@ -138,23 +157,110 @@ class ChatProvider extends ChangeNotifier {
     return color;
   }
 
+  final String userId;
+  final String chatId;
+
+  final List<Message> _messages = [];
+
+  List<Message> get messages => List.unmodifiable(_messages);
+
+  StreamSubscription<List<Message>>? _subscription;
+  late final MessageRepository _messageRepository;
+
+  MessageProvider({required this.userId, required this.chatId}) {
+    Hive.openBox('messages').then((box) {
+      _messageRepository = MessageRepository(box);
+      _listenToMessages();
+    });
+  }
+
+  void _listenToMessages() {
+    _messageRepository.loadCachedMessages(chatId, userId).then((cached) {
+      _messages
+        ..clear()
+        ..addAll(cached);
+      notifyListeners();
+    });
+
+    _subscription =
+        _messageRepository.listenToMessages(chatId, userId).listen((data) {
+      _messages
+        ..clear()
+        ..addAll(data);
+      notifyListeners();
+    });
+  }
+
+  Future<void> submitMessage(String text) async {
+    await _messageRepository.submitMessage(text: text, chatId: chatId);
+  }
+
   @override
   void dispose() {
     _subscription?.cancel();
     super.dispose();
   }
-
-  Future<void> submitMessage(String chatId, String text) async {
-    await _messageRepository.submitMessage(text: text, chatId: chatId);
-  }
 }
 
 class ChatRepository {
-  final String chatId;
+  final String userId;
+  static const String _boxPrefix = 'chats_';
 
-  ChatRepository(this.chatId);
+  ChatRepository(this.userId);
 
-  Stream<Map<String, dynamic>> listenToMetadata() {
+  Future<List<Chat>> fetchUserChats() async {
+    final box = await Hive.openBox('${_boxPrefix}$userId');
+
+    final cachedChats = box.values.whereType<Map>().map((map) {
+      return Chat.fromMap(Map<String, dynamic>.from(map));
+    }).toList();
+
+    final chatIds = await supabase
+        .from('tr_chat_members')
+        .select('chat_id')
+        .eq('profile_id', userId);
+
+    if (chatIds.isEmpty) return cachedChats;
+
+    final ids = chatIds.map((row) => row['chat_id']).toList();
+
+    final remoteChats =
+        await supabase.from('tb_chats').select().inFilter('id', ids);
+
+    for (final chat in remoteChats) {
+      await box.put(chat['id'], chat);
+    }
+
+    final chats = remoteChats.map<Chat>((map) => Chat.fromMap(map)).toList();
+    return chats;
+  }
+
+  static Stream<List<Chat>> listenToUserChats(String userId) {
+    final controller = StreamController<List<Chat>>();
+
+    () async {
+      final chatIdRows = await supabase
+          .from('tr_chat_members')
+          .select('chat_id')
+          .eq('profile_id', userId);
+
+      final List<String> chatIds =
+          chatIdRows.map((row) => row['chat_id'] as String).toList();
+
+      supabase
+          .from('tb_chats')
+          .stream(primaryKey: ['id'])
+          .inFilter('id', chatIds)
+          .listen((rows) {
+            final chats = rows.map((map) => Chat.fromMap(map)).toList();
+            controller.add(chats);
+          });
+    }();
+
+    return controller.stream;
+  }
+
+  static Stream<Map<String, dynamic>> listenToMetadata(String chatId) {
     return supabase
         .from('tb_chats')
         .stream(primaryKey: ['id'])
